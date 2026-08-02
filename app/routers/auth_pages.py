@@ -16,8 +16,12 @@ from .admin import log_access
 router = APIRouter(tags=["auth"])
 
 
-def _page(title: str, body: str, error: str = "") -> str:
-    err = f'<p class="err">{error}</p>' if error else ""
+def _page(title: str, body: str, error: str = "", ok: str = "") -> str:
+    msg = ""
+    if ok:
+        msg += f'<p class="ok">{ok}</p>'
+    if error:
+        msg += f'<p class="err">{error}</p>'
     return f"""<!doctype html>
 <html lang="ko"><head>
 <meta charset="utf-8">
@@ -39,21 +43,24 @@ button{{margin-top:18px;width:100%;padding:12px;border:none;border-radius:8px;ba
   font-size:14px;font-weight:700;cursor:pointer}}
 button:hover{{background:var(--accent-ink)}}
 .err{{margin:0 0 12px;padding:10px 12px;background:#FDECEA;color:var(--exc);border-radius:8px;font-size:13px}}
+.ok{{margin:0 0 12px;padding:10px 12px;background:#E8F6EE;color:#1F7A4C;border-radius:8px;font-size:13px}}
 .foot{{margin-top:16px;font-size:13px;color:var(--muted);text-align:center}}
 .foot a{{color:var(--accent);font-weight:650;text-decoration:none}}
+.hint{{font-size:12px;color:var(--muted);line-height:1.45;margin-top:8px}}
+code{{font-size:11px;background:#F0F2F5;padding:1px 5px;border-radius:4px}}
 </style>
 </head><body>
 <div class="card">
   <div class="brand">LEARNING FLOW</div>
   <h1>{title}</h1>
-  {err}
+  {msg}
   {body}
 </div>
 </body></html>"""
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, error: str = ""):
+def login_page(request: Request, error: str = "", ok: str = ""):
     if get_session_user_id(request) is not None:
         return RedirectResponse("/app", status_code=303)
     body = """
@@ -65,9 +72,10 @@ def login_page(request: Request, error: str = ""):
     <input name="password" type="password" autocomplete="current-password" required>
     <button type="submit">로그인</button>
   </form>
-  <p class="foot">계정이 없나요? <a href="/register">회원가입</a></p>
+  <p class="foot">계정이 없나요? <a href="/register">회원가입</a>
+    · <a href="/reset-password">비밀번호 재설정</a></p>
 """
-    return HTMLResponse(_page("로그인", body, error))
+    return HTMLResponse(_page("로그인", body, error=error, ok=ok))
 
 
 @router.post("/login")
@@ -105,9 +113,60 @@ def register_page(request: Request, error: str = ""):
     <input name="password2" type="password" autocomplete="new-password" minlength="4" required>
     <button type="submit">계정 만들기</button>
   </form>
-  <p class="foot">이미 계정이 있나요? <a href="/login">로그인</a></p>
+  <p class="foot">이미 계정이 있나요? <a href="/login">로그인</a>
+    · <a href="/reset-password">비밀번호 재설정</a></p>
 """
     return HTMLResponse(_page("회원가입", body, error))
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page(request: Request, error: str = ""):
+    if get_session_user_id(request) is not None:
+        return RedirectResponse("/app", status_code=303)
+    body = """
+  <p class="sub">아이디와 재설정 키로 새 비밀번호를 설정합니다.</p>
+  <form method="post" action="/reset-password">
+    <label>아이디</label>
+    <input name="username" autocomplete="username" required autofocus>
+    <label>새 비밀번호</label>
+    <input name="password" type="password" autocomplete="new-password" minlength="4" required>
+    <label>새 비밀번호 확인</label>
+    <input name="password2" type="password" autocomplete="new-password" minlength="4" required>
+    <label>재설정 키</label>
+    <input name="reset_key" type="password" autocomplete="off" required placeholder="서버 APP_PASSWORD">
+    <p class="hint">재설정 키는 서버 <code>.env</code> 의 <b>APP_PASSWORD</b> 값입니다. (기본 설치면 change-me)</p>
+    <button type="submit">비밀번호 바꾸기</button>
+  </form>
+  <p class="foot"><a href="/login">로그인</a> · <a href="/register">회원가입</a></p>
+"""
+    return HTMLResponse(_page("비밀번호 재설정", body, error))
+
+
+@router.post("/reset-password")
+def reset_password_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    password2: str = Form(...),
+    reset_key: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    name = username.strip()
+    if reset_key != settings.app_password:
+        return reset_password_page(request, error="재설정 키가 올바르지 않습니다.")
+    if len(password) < 4:
+        return reset_password_page(request, error="비밀번호는 4자 이상이어야 합니다.")
+    if password != password2:
+        return reset_password_page(request, error="비밀번호 확인이 일치하지 않습니다.")
+    user = db.scalar(select(User).where(User.username == name))
+    if not user:
+        return reset_password_page(request, error="해당 아이디를 찾을 수 없습니다.")
+    user.password_hash = hash_password(password)
+    if name in settings.admin_name_set() and not user.is_admin:
+        user.is_admin = True
+    db.commit()
+    log_access(db, request, user, "password_reset")
+    return login_page(request, ok="비밀번호를 바꿨습니다. 새 비밀번호로 로그인해 주세요.")
 
 
 @router.post("/register")
