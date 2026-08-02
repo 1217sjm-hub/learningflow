@@ -124,7 +124,7 @@ def reset_password_page(request: Request, error: str = ""):
     if get_session_user_id(request) is not None:
         return RedirectResponse("/app", status_code=303)
     body = """
-  <p class="sub">아이디와 재설정 키로 새 비밀번호를 설정합니다.</p>
+  <p class="sub">아이디와 새 비밀번호만 입력하면 바로 바꿀 수 있습니다.</p>
   <form method="post" action="/reset-password">
     <label>아이디</label>
     <input name="username" autocomplete="username" required autofocus>
@@ -132,9 +132,6 @@ def reset_password_page(request: Request, error: str = ""):
     <input name="password" type="password" autocomplete="new-password" minlength="4" required>
     <label>새 비밀번호 확인</label>
     <input name="password2" type="password" autocomplete="new-password" minlength="4" required>
-    <label>재설정 키</label>
-    <input name="reset_key" type="password" autocomplete="off" required placeholder="서버 APP_PASSWORD">
-    <p class="hint">재설정 키는 서버 <code>.env</code> 의 <b>APP_PASSWORD</b> 값입니다. (기본 설치면 change-me)</p>
     <button type="submit">비밀번호 바꾸기</button>
   </form>
   <p class="foot"><a href="/login">로그인</a> · <a href="/register">회원가입</a></p>
@@ -148,12 +145,9 @@ def reset_password_submit(
     username: str = Form(...),
     password: str = Form(...),
     password2: str = Form(...),
-    reset_key: str = Form(...),
     db: Session = Depends(get_db),
 ):
     name = username.strip()
-    if reset_key != settings.app_password:
-        return reset_password_page(request, error="재설정 키가 올바르지 않습니다.")
     if len(password) < 4:
         return reset_password_page(request, error="비밀번호는 4자 이상이어야 합니다.")
     if password != password2:

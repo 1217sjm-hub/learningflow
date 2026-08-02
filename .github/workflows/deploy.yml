@@ -1,0 +1,24 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Lightsail
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 43.201.215.144
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/learningflow
+            git pull origin main
+            source .venv/bin/activate
+            sudo systemctl restart learningflow
+            sudo systemctl status learningflow --no-pager
